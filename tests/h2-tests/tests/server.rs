@@ -105,6 +105,51 @@ async fn serve_request() {
 }
 
 #[tokio::test]
+async fn server_keepalive_timeout() {
+    h2_support::trace_init!();
+    let (io, mut client) = mock::new();
+    let h1 = async {
+        let settings = client.assert_server_handshake().await;
+        assert_default_settings!(settings);
+
+        client.send_frame(frames::headers(1).request("GET", "https://example.com/").eos()).await;
+        client.recv_frame(frames::headers(1).response(200).eos()).await;
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        client.send_frame(frames::headers(3).request("GET", "https://example.com/").eos()).await;
+        let r = client.next().await;
+        assert!(r.is_none());
+    };
+    // check whether accept get body
+    let h2 = async move {
+        let mut srv = server::handshake(io).await.expect("handshake");
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+                    if srv.has_streams() {
+                        continue;
+                    } else {
+                        srv.abrupt_shutdown(Reason::STREAM_CLOSED);
+                        break;
+                    }
+                }
+                res = srv.accept() => {
+                    if res.is_none() {
+                        break;
+                    }
+                    let result = res.unwrap();
+                    let (_, mut respond) = result.unwrap();
+                    let rsp = http::Response::builder().status(200).body(()).unwrap();
+                    respond.send_response(rsp, true).unwrap();
+                }
+            }
+        }
+    };
+
+    join(h1, h2).await;
+}
+
+#[tokio::test]
 async fn serve_connect() {
     h2_support::trace_init!();
     let (io, mut client) = mock::new();
