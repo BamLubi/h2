@@ -443,6 +443,11 @@ where
         Poll::Pending
     }
 
+    /// Checks if there are any streams
+    pub fn has_streams(&self) -> bool {
+        self.connection.has_streams()
+    }
+
     /// Sets the target window size for the whole connection.
     ///
     /// If `size` is greater than the current value, then a `WINDOW_UPDATE`
